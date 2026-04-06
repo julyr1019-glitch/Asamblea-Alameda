@@ -1,133 +1,119 @@
 import streamlit as st
 import pandas as pd
 import os
+import time
 
-# 1. Configuración de pantalla
+# --- CONFIGURACIÓN ---
 st.set_page_config(page_title="Asamblea Alameda 7", page_icon="🏢")
+DB_VOTOS = "votos_asamblea.csv"
+ARCHIVO_ESTADO = "estado.txt" # Aquí guardamos qué pregunta está activa
 
-# --- INICIALIZACIÓN DE MEMORIA (Session State) ---
-if 'db_votos' not in st.session_state:
-    st.session_state.db_votos = pd.DataFrame(columns=["casa", "pregunta", "voto"])
+# Funciones de lectura/escritura de estado
+def set_estado(pregunta_id, mostrar_res):
+    with open(ARCHIVO_ESTADO, "w") as f:
+        f.write(f"{pregunta_id}|{mostrar_res}")
 
-if 'p_activa' not in st.session_state:
-    st.session_state.p_activa = 0
+def get_estado():
+    if not os.path.exists(ARCHIVO_ESTADO):
+        return 0, False
+    with open(ARCHIVO_ESTADO, "r") as f:
+        data = f.read().split("|")
+        return int(data[0]), data[1] == "True"
 
-if 'ver_resultados' not in st.session_state:
-    st.session_state.ver_resultados = False
+# Inicializar archivo de votos
+if not os.path.exists(DB_VOTOS):
+    pd.DataFrame(columns=["casa", "pregunta", "voto"]).to_csv(DB_VOTOS, index=False)
 
-if 'casa_identificada' not in st.session_state:
-    st.session_state.casa_identificada = None
-
-# --- PREGUNTAS OFICIALES ---
+# --- PREGUNTAS ---
 preguntas = [
     "1. ¿Aprueba la elección del Consejo de Administración por planchas?",
     "2. ¿Aprueba la elección del Comité de Convivencia por planchas?",
-    "3. ¿Autoriza la pintura de la fachada de ladrillo (sujeto a recursos)?",
-    "4. ¿Está de acuerdo con la 'cerca viva' entre etapas (sujeto a recursos)?",
-    "5. ¿Aprueba el contenido del nuevo Manual de Convivencia?",
-    "6. ¿Aprueba el decomiso preventivo de objetos en zonas comunes?",
-    "7. ¿Aprueba la cuota extraordinaria para canales de desagüe?",
+    "3. ¿Autoriza la pintura de la fachada de ladrillo?",
+    "4. ¿Está de acuerdo con la 'cerca viva'?",
+    "5. ¿Aprueba el nuevo Manual de Convivencia?",
+    "6. ¿Aprueba el decomiso preventivo de objetos?",
+    "7. ¿Aprueba cuota extraordinaria para canales?",
     "8. ¿Acuerda el encerramiento de la malla del parqueadero?"
 ]
 
-# --- CABECERA CON LOGO ---
-logo_path = "image_f94506.jpg"
-if os.path.exists(logo_path):
-    st.image(logo_path, use_container_width=True)
-else:
-    st.title("🏢 Asamblea Alameda 7")
-
-st.divider()
+# --- LOGO ---
+if os.path.exists("image_f94506.jpg"):
+    st.image("image_f94506.jpg", use_container_width=True)
 
 # --- NAVEGACIÓN ---
-rol = st.sidebar.radio("Menú de Acceso:", ["Votante", "Administrador"])
+rol = st.sidebar.radio("Rol:", ["Votante", "Administrador"])
 
-# --- VISTA ADMINISTRADOR ---
+# --- MODO ADMINISTRADOR ---
 if rol == "Administrador":
     st.header("👨‍💼 Panel de Control")
-    clave = st.text_input("Contraseña Maestro:", type="password")
+    clave = st.text_input("Contraseña:", type="password")
     
     if clave == "Alameda2026*":
-        st.success("Control de Asamblea Activado")
+        p_activa_actual, res_actual = get_estado()
         
-        # El Admin elige qué pregunta se muestra a TODOS
-        st.session_state.p_activa = st.selectbox(
-            "Seleccionar Pregunta para lanzar:", 
-            range(len(preguntas)), 
-            index=st.session_state.p_activa,
-            format_func=lambda x: preguntas[x]
-        )
+        nueva_p = st.selectbox("Pregunta a lanzar:", range(len(preguntas)), index=p_activa_actual, format_func=lambda x: preguntas[x])
+        ver_res = st.checkbox("Mostrar resultados a todos", value=res_actual)
         
-        st.session_state.ver_resultados = st.checkbox(
-            "Publicar Gráficos de Resultados", 
-            value=st.session_state.ver_resultados
-        )
-        
-        st.info(f"Actualmente todos ven la Pregunta {st.session_state.p_activa + 1}")
-        
-        st.divider()
-        st.subheader("📊 Reporte de Votos")
-        if not st.session_state.db_votos.empty:
-            st.dataframe(st.session_state.db_votos)
-            csv = st.session_state.db_votos.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Descargar Excel de Votación", data=csv, file_name="votos_asamblea.csv")
-        else:
-            st.write("Aún no hay registros.")
-
-# --- VISTA VOTANTE ---
-else:
-    # PASO 1: Identificación (Solo se pide una vez)
-    if st.session_state.casa_identificada is None:
-        st.subheader("Identificación de Copropietario")
-        casa_input = st.text_input("🏠 Por favor, ingrese su Número de Casa (1-184):", key="input_casa").strip()
-        if st.button("Ingresar a la Asamblea"):
-            if casa_input:
-                st.session_state.casa_identificada = casa_input
-                st.rerun()
-            else:
-                st.error("Debe ingresar un número de casa.")
-    
-    # PASO 2: Votación (Una vez identificado)
-    else:
-        casa = st.session_state.casa_identificada
-        p_idx = st.session_state.p_activa
-        pregunta_texto = preguntas[p_idx]
-        
-        st.sidebar.write(f"🏠 Casa: **{casa}**")
-        if st.sidebar.button("Cambiar de Casa / Salir"):
-            st.session_state.casa_identificada = None
+        if st.button("🚀 ACTUALIZAR PARA TODOS LOS CELULARES"):
+            set_estado(nueva_p, ver_res)
+            st.success(f"Lanzada: Pregunta {nueva_p + 1}")
+            time.sleep(1)
             st.rerun()
 
-        st.subheader(f"Pregunta {p_idx + 1}")
-        st.markdown(f"### {pregunta_texto}")
-        
-        # Verificar si ya votó
-        df = st.session_state.db_votos
-        ya_voto = not df[(df['casa'] == casa) & (df['pregunta'] == pregunta_texto)].empty
-        
-        if st.session_state.ver_resultados:
-            st.success("📊 Votación Cerrada. Resultados en pantalla:")
-            resumen = df[df['pregunta'] == pregunta_texto]['voto'].value_counts()
-            if not resumen.empty:
-                st.bar_chart(resumen)
-            else:
-                st.write("No se registraron votos.")
-        
-        elif ya_voto:
-            st.warning(f"Su voto (Casa {casa}) ya fue registrado. Por favor, espere a que el administrador lance la siguiente pregunta.")
-            if st.button("🔄 Verificar nueva pregunta"):
+        st.divider()
+        if st.button("🗑️ Borrar todos los votos (Reiniciar Asamblea)"):
+            pd.DataFrame(columns=["casa", "pregunta", "voto"]).to_csv(DB_VOTOS, index=False)
+            st.warning("Votos eliminados.")
+
+# --- MODO VOTANTE ---
+else:
+    # 1. Leer estado del servidor
+    p_idx, ver_grafico = get_estado()
+    
+    # Identificación persistente en la sesión del celular
+    if 'mi_casa' not in st.session_state:
+        st.subheader("Identificación")
+        casa_input = st.text_input("Número de Casa (1-184):").strip()
+        if st.button("Entrar"):
+            if casa_input:
+                st.session_state.mi_casa = casa_input
                 st.rerun()
+    else:
+        casa = st.session_state.mi_casa
+        st.sidebar.write(f"🏠 Casa: {casa}")
         
+        st.subheader(f"Pregunta {p_idx + 1}")
+        st.markdown(f"**{preguntas[p_idx]}**")
+        
+        # Leer votos reales del archivo
+        df_votos = pd.read_csv(DB_VOTOS)
+        ya_voto = not df_votos[(df_votos['casa'].astype(str) == casa) & (df_votos['pregunta'] == preguntas[p_idx])].empty
+        
+        if ver_grafico:
+            st.success("📊 Resultados en tiempo real:")
+            conteo = df_votos[df_votos['pregunta'] == preguntas[p_idx]]['voto'].value_counts()
+            if not conteo.empty:
+                st.bar_chart(conteo)
+            else:
+                st.write("No hay votos aún.")
+            if st.button("🔄 Actualizar Resultados"): st.rerun()
+            
+        elif ya_voto:
+            st.warning("Voto registrado. Esperando siguiente pregunta...")
+            if st.button("🔄 Buscar nueva pregunta"): st.rerun()
+            
         else:
-            col1, col2 = st.columns(2)
-            with col1:
+            c1, c2 = st.columns(2)
+            with c1:
                 if st.button("✅ SÍ", use_container_width=True):
-                    nuevo = pd.DataFrame([{"casa": casa, "pregunta": pregunta_texto, "voto": "SÍ"}])
-                    st.session_state.db_votos = pd.concat([st.session_state.db_votos, nuevo], ignore_index=True)
+                    nuevo = pd.DataFrame([{"casa": casa, "pregunta": preguntas[p_idx], "voto": "SÍ"}])
+                    nuevo.to_csv(DB_VOTOS, mode='a', header=False, index=False)
                     st.balloons()
+                    time.sleep(1)
                     st.rerun()
-            with col2:
+            with c2:
                 if st.button("❌ NO", use_container_width=True):
-                    nuevo = pd.DataFrame([{"casa": casa, "pregunta": pregunta_texto, "voto": "NO"}])
-                    st.session_state.db_votos = pd.concat([st.session_state.db_votos, nuevo], ignore_index=True)
+                    nuevo = pd.DataFrame([{"casa": casa, "pregunta": preguntas[p_idx], "voto": "NO"}])
+                    nuevo.to_csv(DB_VOTOS, mode='a', header=False, index=False)
+                    time.sleep(1)
                     st.rerun()
