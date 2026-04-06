@@ -5,7 +5,7 @@ import os
 # 1. Configuración de pantalla
 st.set_page_config(page_title="Asamblea Alameda 7", page_icon="🏢")
 
-# 2. Inicializar la "Base de Datos" interna en la memoria del servidor
+# --- INICIALIZACIÓN DE MEMORIA (Session State) ---
 if 'db_votos' not in st.session_state:
     st.session_state.db_votos = pd.DataFrame(columns=["casa", "pregunta", "voto"])
 
@@ -15,7 +15,10 @@ if 'p_activa' not in st.session_state:
 if 'ver_resultados' not in st.session_state:
     st.session_state.ver_resultados = False
 
-# --- PREGUNTAS ---
+if 'casa_identificada' not in st.session_state:
+    st.session_state.casa_identificada = None
+
+# --- PREGUNTAS OFICIALES ---
 preguntas = [
     "1. ¿Aprueba la elección del Consejo de Administración por planchas?",
     "2. ¿Aprueba la elección del Comité de Convivencia por planchas?",
@@ -37,65 +40,94 @@ else:
 st.divider()
 
 # --- NAVEGACIÓN ---
-rol = st.sidebar.radio("Menú:", ["Votante", "Administrador"])
+rol = st.sidebar.radio("Menú de Acceso:", ["Votante", "Administrador"])
 
 # --- VISTA ADMINISTRADOR ---
 if rol == "Administrador":
     st.header("👨‍💼 Panel de Control")
-    clave = st.text_input("Contraseña:", type="password")
+    clave = st.text_input("Contraseña Maestro:", type="password")
     
     if clave == "Alameda2026*":
-        st.success("Control Maestro Activado")
+        st.success("Control de Asamblea Activado")
         
-        # Control de Preguntas
-        st.session_state.p_activa = st.selectbox("Seleccionar Pregunta:", range(len(preguntas)), format_func=lambda x: preguntas[x])
-        st.session_state.ver_resultados = st.checkbox("Publicar Gráficos a los Vecinos", value=st.session_state.ver_resultados)
+        # El Admin elige qué pregunta se muestra a TODOS
+        st.session_state.p_activa = st.selectbox(
+            "Seleccionar Pregunta para lanzar:", 
+            range(len(preguntas)), 
+            index=st.session_state.p_activa,
+            format_func=lambda x: preguntas[x]
+        )
+        
+        st.session_state.ver_resultados = st.checkbox(
+            "Publicar Gráficos de Resultados", 
+            value=st.session_state.ver_resultados
+        )
+        
+        st.info(f"Actualmente todos ven la Pregunta {st.session_state.p_activa + 1}")
         
         st.divider()
-        st.subheader("📥 Descargar Reporte Final")
+        st.subheader("📊 Reporte de Votos")
         if not st.session_state.db_votos.empty:
+            st.dataframe(st.session_state.db_votos)
             csv = st.session_state.db_votos.to_csv(index=False).encode('utf-8')
-            st.download_button("📩 Descargar Excel (CSV) de Votos", data=csv, file_name="votos_alameda_7.csv", mime="text/csv")
-            
-            st.write("Vista previa de votos recibidos:")
-            st.dataframe(st.session_state.db_votos.tail(5)) # Muestra los últimos 5
+            st.download_button("📥 Descargar Excel de Votación", data=csv, file_name="votos_asamblea.csv")
         else:
-            st.info("Aún no hay votos registrados.")
+            st.write("Aún no hay registros.")
 
 # --- VISTA VOTANTE ---
 else:
-    p_idx = st.session_state.p_activa
-    st.subheader(f"Pregunta {p_idx + 1}")
-    st.markdown(f"### {preguntas[p_idx]}")
+    # PASO 1: Identificación (Solo se pide una vez)
+    if st.session_state.casa_identificada is None:
+        st.subheader("Identificación de Copropietario")
+        casa_input = st.text_input("🏠 Por favor, ingrese su Número de Casa (1-184):", key="input_casa").strip()
+        if st.button("Ingresar a la Asamblea"):
+            if casa_input:
+                st.session_state.casa_identificada = casa_input
+                st.rerun()
+            else:
+                st.error("Debe ingresar un número de casa.")
     
-    casa = st.text_input("🏠 Su Número de Casa:", placeholder="Ej: 10").strip()
-    
-    if casa:
-        # Verificar si esta casa ya votó en LA PREGUNTA ACTUAL
+    # PASO 2: Votación (Una vez identificado)
+    else:
+        casa = st.session_state.casa_identificada
+        p_idx = st.session_state.p_activa
+        pregunta_texto = preguntas[p_idx]
+        
+        st.sidebar.write(f"🏠 Casa: **{casa}**")
+        if st.sidebar.button("Cambiar de Casa / Salir"):
+            st.session_state.casa_identificada = None
+            st.rerun()
+
+        st.subheader(f"Pregunta {p_idx + 1}")
+        st.markdown(f"### {pregunta_texto}")
+        
+        # Verificar si ya votó
         df = st.session_state.db_votos
-        ya_voto = not df[(df['casa'] == casa) & (df['pregunta'] == preguntas[p_idx])].empty
+        ya_voto = not df[(df['casa'] == casa) & (df['pregunta'] == pregunta_texto)].empty
         
         if st.session_state.ver_resultados:
-            st.success("📊 Votación Cerrada. Resultados:")
-            conteo = df[df['pregunta'] == preguntas[p_idx]]['voto'].value_counts()
-            if not conteo.empty:
-                st.bar_chart(conteo)
+            st.success("📊 Votación Cerrada. Resultados en pantalla:")
+            resumen = df[df['pregunta'] == pregunta_texto]['voto'].value_counts()
+            if not resumen.empty:
+                st.bar_chart(resumen)
             else:
-                st.write("No hubo votos en esta pregunta.")
+                st.write("No se registraron votos.")
         
         elif ya_voto:
-            st.error(f"La casa {casa} ya votó. Por favor, espere la siguiente pregunta.")
+            st.warning(f"Su voto (Casa {casa}) ya fue registrado. Por favor, espere a que el administrador lance la siguiente pregunta.")
+            if st.button("🔄 Verificar nueva pregunta"):
+                st.rerun()
         
         else:
-            c1, c2 = st.columns(2)
-            with c1:
+            col1, col2 = st.columns(2)
+            with col1:
                 if st.button("✅ SÍ", use_container_width=True):
-                    nuevo_voto = pd.DataFrame([{"casa": casa, "pregunta": preguntas[p_idx], "voto": "SÍ"}])
-                    st.session_state.db_votos = pd.concat([st.session_state.db_votos, nuevo_voto], ignore_index=True)
+                    nuevo = pd.DataFrame([{"casa": casa, "pregunta": pregunta_texto, "voto": "SÍ"}])
+                    st.session_state.db_votos = pd.concat([st.session_state.db_votos, nuevo], ignore_index=True)
                     st.balloons()
                     st.rerun()
-            with c2:
+            with col2:
                 if st.button("❌ NO", use_container_width=True):
-                    nuevo_voto = pd.DataFrame([{"casa": casa, "pregunta": preguntas[p_idx], "voto": "NO"}])
-                    st.session_state.db_votos = pd.concat([st.session_state.db_votos, nuevo_voto], ignore_index=True)
+                    nuevo = pd.DataFrame([{"casa": casa, "pregunta": pregunta_texto, "voto": "NO"}])
+                    st.session_state.db_votos = pd.concat([st.session_state.db_votos, nuevo], ignore_index=True)
                     st.rerun()
