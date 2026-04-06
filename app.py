@@ -150,4 +150,61 @@ else:
             st.rerun()
             
         else:
-            st.subheader(f"Pregunta {p_id +
+            st.subheader(f"Pregunta {p_id + 1}")
+            st.info(preguntas[p_id])
+
+            # --- RELOJ ANIMADO ---
+            reloj_area = st.empty()
+            df = servidor['votos']
+            ya_voto = not df[(df['casa'] == casa) & (df['p_id'] == p_id)].empty
+
+            if fase == "votacion" and not ya_voto:
+                restante = (servidor['tiempo_cierre'] - datetime.now()).total_seconds()
+                if restante > 0:
+                    reloj_area.error(f"⏱️ TIEMPO RESTANTE: {int(restante)} segundos")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    reloj_area.warning("⌛ El tiempo de votación ha terminado.")
+
+            # --- MOSTRAR RESULTADOS (GRÁFICA CIRCULAR) ---
+            if fase == "resultados":
+                st.success("📊 RESULTADOS CONSOLIDADOS (%)")
+                votos_p = df[df['p_id'] == p_id]
+                if not votos_p.empty:
+                    res_sum = votos_p.groupby('voto')['representa'].sum()
+                    fig, ax = plt.subplots()
+                    colores = ['#2ecc71', '#e74c3c', '#3498db'] if p_id == 8 else ['#2ecc71', '#e74c3c']
+                    ax.pie(res_sum, labels=res_sum.index, autopct='%1.1f%%', startangle=90, colors=colores[:len(res_sum)])
+                    ax.axis('equal')
+                    st.pyplot(fig)
+                if st.button("🔄 Actualizar"): st.rerun()
+
+            elif ya_voto:
+                st.success("✅ Voto registrado con éxito.")
+                time.sleep(5)
+                st.rerun()
+
+            elif fase == "votacion":
+                # Botones Pregunta 9
+                if p_id == 8:
+                    for op in opciones_p9:
+                        if st.button(f"Opción: {op}", use_container_width=True):
+                            nuevo = pd.DataFrame([{"casa": casa, "representa": repre, "p_id": p_id, "voto": op}])
+                            servidor['votos'] = pd.concat([servidor['votos'], nuevo], ignore_index=True)
+                            st.balloons()
+                            st.rerun()
+                # Botones SÍ/NO
+                else:
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button("✅ SÍ", use_container_width=True):
+                            nuevo = pd.DataFrame([{"casa": casa, "representa": repre, "p_id": p_id, "voto": "SÍ"}])
+                            servidor['votos'] = pd.concat([servidor['votos'], nuevo], ignore_index=True)
+                            st.balloons()
+                            st.rerun()
+                    with c2:
+                        if st.button("❌ NO", use_container_width=True):
+                            nuevo = pd.DataFrame([{"casa": casa, "representa": repre, "p_id": p_id, "voto": "NO"}])
+                            servidor['votos'] = pd.concat([servidor['votos'], nuevo], ignore_index=True)
+                            st.rerun()
