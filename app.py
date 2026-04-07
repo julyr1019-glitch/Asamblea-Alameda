@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 # --- 1. CONFIGURACIÓN ---
 st.set_page_config(page_title="Asamblea Alameda 7 PRO", page_icon="🏢", layout="centered")
 
-# --- 2. MEMORIA GLOBAL (Sincronizada) ---
+# --- 2. MEMORIA GLOBAL ---
 @st.cache_resource
 def iniciar_servidor():
     return {
@@ -38,39 +38,35 @@ preguntas = [
 ]
 opciones_p9 = ["70.000", "75.000", "85.000"]
 
-# --- 4. LOGO ---
-if os.path.exists("image_f94506.jpg"):
-    st.image("image_f94506.jpg", use_container_width=True)
-else:
-    st.title("🏢 Asamblea Alameda 7")
+# --- 4. LOGO (TAMAÑO DISMINUIDO) ---
+c_logo1, c_logo2, c_logo3 = st.columns([1, 2, 1])
+with c_logo2: # Centramos el logo pequeño
+    if os.path.exists("image_f94506.jpg"):
+        st.image("image_f94506.jpg", width=250)
+    else:
+        st.title("🏢 Asamblea Alameda 7")
 
 st.divider()
 
-# --- 5. NAVEGACIÓN LATERAL ---
-# Usamos un ID único para que no se pierda al recargar
-rol = st.sidebar.radio("SISTEMA DE ASAMBLEA", ["Votante", "Administrador"], key="main_nav_radio")
+# --- 5. NAVEGACIÓN ---
+rol = st.sidebar.radio("SISTEMA DE ASAMBLEA", ["Votante", "Administrador"], key="nav_main_pro")
 
 # --- VISTA ADMINISTRADOR ---
 if rol == "Administrador":
     st.header("👨‍💼 Panel de Mando (Admin)")
-    clave = st.text_input("Contraseña Maestro:", type="password", key="admin_pass_input")
+    clave = st.text_input("Contraseña Maestro:", type="password", key="admin_pwd_matrix")
     
     if clave == "Alameda2026*":
-        # MONITOR DE QUÓRUM
         casas_presentes = sum(servidor["conectados"].values())
         porcentaje_quorum = (casas_presentes / TOTAL_CASAS) * 100
         st.subheader(f"📊 Quórum Actual: {porcentaje_quorum:.1f}%")
         st.progress(min(porcentaje_quorum / 100, 1.0))
-        st.write(f"Casas representadas: {casas_presentes} de {TOTAL_CASAS}")
         
         if not servidor["asamblea_iniciada"]:
-            st.info("La asamblea está detenida.")
             if st.button("🚀 INICIAR ASAMBLEA GENERAL", type="primary", use_container_width=True):
                 servidor["asamblea_iniciada"] = True
-                st.success("¡Asamblea Iniciada!")
                 st.rerun()
         else:
-            st.success("✅ Asamblea en curso")
             sel_p = st.selectbox("Gestionar Pregunta:", range(len(preguntas)), 
                                  index=servidor['p_idx'], format_func=lambda x: preguntas[x])
             segundos = st.slider("Segundos de votación:", 30, 300, 60)
@@ -87,83 +83,69 @@ if rol == "Administrador":
                     servidor['fase'] = "resultados"
                     st.rerun()
 
-            # MONITOR DE GRÁFICAS Y MATRIZ
+            # MONITOR DE GRÁFICAS
             df_v = servidor['votos']
             votos_act = df_v[df_v['p_id'] == sel_p]
             if not votos_act.empty:
                 res_sum = votos_act.groupby('voto')['representa'].sum()
                 fig, ax = plt.subplots(figsize=(5,3))
-                
-                # Lógica de colores fija
                 if sel_p == 8:
-                    # Orden fijo para Pregunta 9: Verde, Azul, Rojo
                     res_sum_ord = res_sum.reindex(opciones_p9).fillna(0)
-                    labels = opciones_p9
-                    colors = ['#2ecc71', '#3498db', '#e74c3c']
+                    labels, colors = opciones_p9, ['#2ecc71', '#3498db', '#e74c3c']
                 else:
-                    # Orden para Si/No: Rojo para NO, Verde para SI
                     res_sum_ord = res_sum.sort_index()
                     labels = res_sum_ord.index.tolist()
-                    color_map = {'SÍ': '#2ecc71', 'NO': '#e74c3c'}
-                    colors = [color_map[l] for l in labels]
+                    colors = [{'SÍ': '#2ecc71', 'NO': '#e74c3c'}[l] for l in labels]
                 
                 ax.pie(res_sum_ord, labels=labels, autopct='%1.1f%%', startangle=90, colors=colors)
-                ax.axis('equal')
                 st.pyplot(fig)
                 
                 with st.expander("Ver Matriz de Votos Detallada"):
-                    pivot = df_v.pivot(index='casa', columns='p_id', values='voto')
-                    pivot.columns = [f"P{i+1}" for i in pivot.columns]
-                    st.dataframe(pivot.fillna("-"))
+                    # Aquí se muestra la planilla con la representación
+                    st.dataframe(df_v)
             
             csv = df_v.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Descargar Reporte Final", data=csv, file_name="resultados.csv")
+            st.download_button("📥 Descargar Reporte", data=csv, file_name="resultados.csv")
 
 # --- VISTA VOTANTE ---
 else:
-    # 1. Registro (Aparece siempre si no hay sesión)
     if 'mi_casa' not in st.session_state:
         st.subheader("Registro de Copropietario")
-        casa_input = st.text_input("🏠 Número de Casa:", key="voter_casa_id").strip()
-        poderes_input = st.number_input("¿Cuántas casas representa?", 1, 10, 1, key="voter_poderes")
+        c_in = st.text_input("🏠 Número de Casa Principal:", key="input_casa_final").strip()
+        poderes = st.number_input("¿A cuántas casas representa en total? (Incluyendo la suya)", 1, 10, 1, key="input_poder_final")
         
         if st.button("Entrar a la Asamblea", type="primary", use_container_width=True):
-            if casa_input:
-                st.session_state.mi_casa = casa_input
-                st.session_state.num_votos = poderes_input
-                servidor['conectados'][casa_input] = poderes_input
+            if c_in:
+                st.session_state.mi_casa = c_in
+                st.session_state.num_votos = poderes
+                servidor['conectados'][c_in] = poderes
                 st.rerun()
-            else:
-                st.error("Por favor, ingrese el número de casa.")
-    
-    # 2. Pantalla de Asamblea (Si ya está registrado)
     else:
         casa = st.session_state.mi_casa
         repre = st.session_state.num_votos
-        st.sidebar.info(f"Sesión: Casa {casa} | Votos: {repre}")
         
-        if st.sidebar.button("Cerrar Sesión / Cambiar Casa"):
+        # PLANILLA EN SIDEBAR
+        st.sidebar.markdown(f"### 📋 Su Planilla")
+        st.sidebar.info(f"🏠 **Casa Principal:** {casa}\n\n👥 **Representa a:** {repre} Casa(s)")
+        
+        if st.sidebar.button("Cerrar Sesión"):
             del st.session_state.mi_casa
             st.rerun()
 
-        # Chequeo de Inicio
         if not servidor["asamblea_iniciada"]:
-            st.warning("⏳ La Asamblea aún no ha sido iniciada por el Administrador. Por favor, espere...")
+            st.warning("⏳ Esperando inicio de la sesión...")
             time.sleep(3)
             st.rerun()
         
-        # Lógica de fases
-        fase = servidor['fase']
-        p_id = servidor['p_idx']
+        fase, p_id = servidor['fase'], servidor['p_idx']
         
         if fase == "espera":
-            st.info("⌛ El Administrador está preparando la siguiente votación...")
+            st.info("⌛ Preparando siguiente votación...")
             time.sleep(3)
             st.rerun()
-            
         else:
-            st.subheader(f"Pregunta {p_id + 1}")
-            st.markdown(f"**{preguntas[p_id]}**")
+            # PREGUNTA CON LETRA GRANDE Y NEGRITA
+            st.markdown(f"<h2 style='text-align: center; color: #31333F;'><b>{preguntas[p_id]}</b></h2>", unsafe_allow_html=True)
             
             reloj_area = st.empty()
             df = servidor['votos']
@@ -174,7 +156,7 @@ else:
                 restante = (servidor['tiempo_cierre'] - datetime.now()).total_seconds()
 
             if fase == "resultados":
-                st.success("📊 RESULTADOS ACTUALES")
+                st.success("📊 RESULTADOS CONSOLIDADOS")
                 v_p = df[df['p_id'] == p_id]
                 if not v_p.empty:
                     res_s = v_p.groupby('voto')['representa'].sum()
@@ -188,39 +170,39 @@ else:
                         c = [{'SÍ': '#2ecc71', 'NO': '#e74c3c'}[i] for i in l]
                         ax.pie(res_s, labels=l, autopct='%1.1f%%', colors=c)
                     st.pyplot(fig)
-                st.button("🔄 Actualizar Resultados") # No necesita rerun manual por el flujo
+                st.button("🔄 Actualizar")
 
             elif ya_voto:
-                st.success("✅ Su voto ha sido recibido correctamente.")
+                st.success(f"✅ Voto de la Casa {casa} (x{repre}) registrado.")
                 time.sleep(5)
                 st.rerun()
 
             elif fase == "votacion" and restante > 0:
-                reloj_area.error(f"⏱️ TIEMPO PARA VOTAR: {int(restante)} segundos")
+                reloj_area.error(f"⏱️ CIERRE EN: {int(restante)} segundos")
                 
                 if p_id == 8: # Pregunta 9
                     for op in opciones_p9:
-                        if st.button(f"Opción: {op}", use_container_width=True, key=f"btn_p9_{op}"):
+                        if st.button(f"VOTAR POR: {op}", use_container_width=True, key=f"btn_p9_{op}"):
                             nuevo = pd.DataFrame([{"casa": casa, "representa": repre, "p_id": p_id, "voto": op}])
                             servidor['votos'] = pd.concat([servidor['votos'], nuevo], ignore_index=True)
                             st.rerun()
-                else: # Resto
+                else: 
                     c1, c2 = st.columns(2)
                     with c1:
-                        if st.button("✅ SÍ", use_container_width=True, key="btn_si_voter"):
+                        if st.button("✅ SÍ", use_container_width=True, key="btn_si_v"):
                             nuevo = pd.DataFrame([{"casa": casa, "representa": repre, "p_id": p_id, "voto": "SÍ"}])
                             servidor['votos'] = pd.concat([servidor['votos'], nuevo], ignore_index=True)
                             st.balloons()
                             st.rerun()
                     with c2:
-                        if st.button("❌ NO", use_container_width=True, key="btn_no_voter"):
+                        if st.button("❌ NO", use_container_width=True, key="btn_no_v"):
                             nuevo = pd.DataFrame([{"casa": casa, "representa": repre, "p_id": p_id, "voto": "NO"}])
                             servidor['votos'] = pd.concat([servidor['votos'], nuevo], ignore_index=True)
                             st.rerun()
                 
                 time.sleep(1)
                 st.rerun()
-            
             else:
-                st.warning("⌛ El tiempo de votación ha terminado.")
+                st.warning("⌛ Tiempo de votación terminado.")
                 time.sleep(3)
+                st.rerun()
