@@ -10,16 +10,21 @@ st.set_page_config(
     page_title="Asamblea Alameda 7 PRO", 
     page_icon="🏢", 
     layout="centered",
-    initial_sidebar_state="collapsed" # Mantiene el menú lateral cerrado por defecto
+    initial_sidebar_state="collapsed"
 )
 
-# --- 2. OCULTAR MENÚS DE STREAMLIT (CÓDIGO DE SEGURIDAD) ---
+# --- 2. CSS PARA OCULTAR TODO EL SOPORTE Y MENÚS DE STREAMLIT ---
+# Esto elimina Menú, Footer, Header y el botón de "Manage App"
 hide_st_style = """
             <style>
             #MainMenu {visibility: hidden;}
             footer {visibility: hidden;}
             header {visibility: hidden;}
             #stDecoration {display:none;}
+            [data-testid="stStatusWidget"] {visibility: hidden;}
+            .stDeployButton {display:none;}
+            #manage-app-button {display:none;}
+            button[title="View source"] {display:none;}
             </style>
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
@@ -54,23 +59,23 @@ preguntas = [
 ]
 opciones_p9 = ["70.000", "75.000", "85.000"]
 
-# --- 5. LOGO (TAMAÑO DISMINUIDO) ---
-c_logo1, c_logo2, c_logo3 = st.columns([1, 2, 1])
+# --- 5. LOGO (TAMAÑO PEQUEÑO) ---
+c_logo1, c_logo2, c_logo3 = st.columns([1, 1, 1])
 with c_logo2:
     if os.path.exists("image_f94506.jpg"):
-        st.image("image_f94506.jpg", width=250)
+        st.image("image_f94506.jpg", width=220)
     else:
         st.title("🏢 Asamblea Alameda 7")
 
 st.divider()
 
 # --- 6. NAVEGACIÓN ---
-rol = st.sidebar.radio("SISTEMA DE ASAMBLEA", ["Votante", "Administrador"], key="nav_secure")
+rol = st.sidebar.radio("SISTEMA DE ASAMBLEA", ["Votante", "Administrador"], key="nav_pro_final")
 
 # --- VISTA ADMINISTRADOR ---
 if rol == "Administrador":
     st.header("👨‍💼 Panel de Mando (Admin)")
-    clave = st.text_input("Contraseña Maestro:", type="password", key="admin_pwd_matrix")
+    clave = st.text_input("Contraseña Maestro:", type="password", key="admin_pwd_f")
     
     if clave == "Alameda2026*":
         casas_presentes = sum(servidor["conectados"].values())
@@ -99,7 +104,6 @@ if rol == "Administrador":
                     servidor['fase'] = "resultados"
                     st.rerun()
 
-            # MONITOR DE GRÁFICAS
             df_v = servidor['votos']
             votos_act = df_v[df_v['p_id'] == sel_p]
             if not votos_act.empty:
@@ -111,9 +115,7 @@ if rol == "Administrador":
                 else:
                     res_sum_ord = res_sum.sort_index()
                     labels = res_sum_ord.index.tolist()
-                    color_map = {'SÍ': '#2ecc71', 'NO': '#e74c3c'}
-                    colors = [color_map[l] for l in labels]
-                
+                    colors = [{'SÍ': '#2ecc71', 'NO': '#e74c3c'}[l] for l in labels]
                 ax.pie(res_sum_ord, labels=labels, autopct='%1.1f%%', startangle=90, colors=colors)
                 st.pyplot(fig)
             
@@ -124,8 +126,8 @@ if rol == "Administrador":
 else:
     if 'mi_casa' not in st.session_state:
         st.subheader("Registro de Copropietario")
-        c_in = st.text_input("🏠 Número de Casa Principal:", key="input_casa_final").strip()
-        poderes = st.number_input("¿A cuántas casas representa en total? (Incluyendo la suya)", 1, 10, 1, key="input_poder_final")
+        c_in = st.text_input("🏠 Número de Casa Principal:", key="casa_reg").strip()
+        poderes = st.number_input("¿Cuántas casas representa? (Total)", 1, 10, 1, key="poder_reg")
         
         if st.button("Entrar a la Asamblea", type="primary", use_container_width=True):
             if c_in:
@@ -151,20 +153,24 @@ else:
         fase, p_id = servidor['fase'], servidor['p_idx']
         
         if fase == "espera":
-            st.info("⌛ El administrador está preparando la votación...")
+            st.info("⌛ Preparando siguiente votación...")
             time.sleep(3)
             st.rerun()
         else:
-            # PREGUNTA EN NEGRITA Y GRANDE
-            st.markdown(f"<h2 style='text-align: center; color: #31333F;'><b>{preguntas[p_id]}</b></h2>", unsafe_allow_html=True)
+            # --- PREGUNTA CON FUENTE TAMAÑO TÍTULO (H1) ---
+            st.markdown(f"""
+                <div style='text-align: center; padding: 20px;'>
+                    <h1 style='font-size: 2.5rem; font-weight: bold; color: #1E1E1E;'>
+                        {preguntas[p_id]}
+                    </h1>
+                </div>
+                """, unsafe_allow_html=True)
             
             reloj_area = st.empty()
             df = servidor['votos']
             ya_voto = not df[(df['casa'] == casa) & (df['p_id'] == p_id)].empty
             
-            restante = 0
-            if fase == "votacion" and servidor['tiempo_cierre']:
-                restante = (servidor['tiempo_cierre'] - datetime.now()).total_seconds()
+            restante = (servidor['tiempo_cierre'] - datetime.now()).total_seconds() if fase == "votacion" and servidor['tiempo_cierre'] else 0
 
             if fase == "resultados":
                 st.success("📊 RESULTADOS CONSOLIDADOS")
@@ -181,7 +187,7 @@ else:
                         c = [{'SÍ': '#2ecc71', 'NO': '#e74c3c'}[i] for i in l]
                         ax.pie(res_s, labels=l, autopct='%1.1f%%', colors=c)
                     st.pyplot(fig)
-                if st.button("🔄 Actualizar"): st.rerun()
+                st.button("🔄 Actualizar")
 
             elif ya_voto:
                 st.success(f"✅ Voto registrado (Casa {casa}).")
@@ -193,19 +199,19 @@ else:
                 
                 if p_id == 8: # Pregunta 9
                     for op in opciones_p9:
-                        if st.button(f"VOTAR POR: {op}", use_container_width=True, key=f"btn_p9_{op}"):
+                        if st.button(f"VOTAR POR: {op}", use_container_width=True, key=f"f_btn_{op}"):
                             nuevo = pd.DataFrame([{"casa": casa, "representa": repre, "p_id": p_id, "voto": op}])
                             servidor['votos'] = pd.concat([servidor['votos'], nuevo], ignore_index=True)
                             st.rerun()
                 else: 
                     c1, c2 = st.columns(2)
                     with c1:
-                        if st.button("✅ SÍ", use_container_width=True, key="btn_si_v"):
+                        if st.button("✅ SÍ", use_container_width=True, key="f_btn_si"):
                             nuevo = pd.DataFrame([{"casa": casa, "representa": repre, "p_id": p_id, "voto": "SÍ"}])
                             servidor['votos'] = pd.concat([servidor['votos'], nuevo], ignore_index=True)
                             st.rerun()
                     with c2:
-                        if st.button("❌ NO", use_container_width=True, key="btn_no_v"):
+                        if st.button("❌ NO", use_container_width=True, key="f_btn_no"):
                             nuevo = pd.DataFrame([{"casa": casa, "representa": repre, "p_id": p_id, "voto": "NO"}])
                             servidor['votos'] = pd.concat([servidor['votos'], nuevo], ignore_index=True)
                             st.rerun()
