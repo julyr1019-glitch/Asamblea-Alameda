@@ -5,45 +5,36 @@ import os
 import time
 from datetime import datetime, timedelta
 
-# --- 1. CONFIGURACIÓN DE PÁGINA ---
+# --- 1. CONFIGURACIÓN ---
 st.set_page_config(
     page_title="Asamblea Alameda 7 PRO", 
     page_icon="🏢", 
     layout="centered",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded" # Aseguramos que el menú se vea
 )
 
-# --- 2. CSS NINJA (OCULTA TODO Y AGRANDA LETRA) ---
-# He añadido !important para asegurar que Streamlit no ignore las órdenes
-style_ajustes = """
+# --- 2. CSS PARA LIMPIAR Y AGRANDAR LETRA ---
+# Ocultamos solo lo que lleva a Streamlit, no tu menú.
+st.markdown("""
     <style>
-    /* Ocultar elementos de Streamlit */
+    /* Ocultar branding de Streamlit */
     #MainMenu {visibility: hidden !important;}
     footer {visibility: hidden !important;}
-    header {visibility: hidden !important;}
     .stDeployButton {display:none !important;}
     #manage-app-button {display:none !important;}
-    [data-testid="stHeader"] {display:none !important;}
-    [data-testid="stToolbar"] {display:none !important;}
     
-    /* Estilo para la PREGUNTA GIGANTE */
-    .pregunta-gigante {
-        font-size: 45px !important;
+    /* ESTILO DE PREGUNTA TIPO TÍTULO GIGANTE */
+    .titulo-pregunta {
+        font-size: 42px !important;
         font-weight: 800 !important;
-        color: #000000 !important;
+        color: #1E1E1E !important;
         text-align: center !important;
-        line-height: 1.2 !important;
-        padding: 20px 0px !important;
+        line-height: 1.1 !important;
+        margin-bottom: 30px !important;
         font-family: 'Source Sans Pro', sans-serif !important;
     }
-    
-    /* Quitar espacio superior innecesario */
-    .block-container {
-        padding-top: 1rem !important;
-    }
     </style>
-    """
-st.markdown(style_ajustes, unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
 
 # --- 3. MEMORIA GLOBAL ---
 @st.cache_resource
@@ -75,23 +66,23 @@ preguntas = [
 ]
 opciones_p9 = ["70.000", "75.000", "85.000"]
 
-# --- 5. LOGO (TAMAÑO PEQUEÑO) ---
-c_logo1, c_logo2, c_logo3 = st.columns([1, 1, 1])
-with c_logo2:
+# --- 5. LOGO (TAMAÑO DISMINUIDO) ---
+col1, col2, col3 = st.columns([1, 1, 1])
+with col2:
     if os.path.exists("image_f94506.jpg"):
-        st.image("image_f94506.jpg", width=200)
+        st.image("image_f94506.jpg", width=200) # Logo pequeño
     else:
         st.title("🏢 Alameda 7")
 
 st.divider()
 
-# --- 6. NAVEGACIÓN ---
-rol = st.sidebar.radio("SISTEMA DE ASAMBLEA", ["Votante", "Administrador"], key="nav_def_final")
+# --- 6. NAVEGACIÓN (RESTAURADA) ---
+rol = st.sidebar.radio("SISTEMA DE ASAMBLEA", ["Votante", "Administrador"], key="rol_selector")
 
 # --- VISTA ADMINISTRADOR ---
 if rol == "Administrador":
-    st.header("👨‍💼 Panel Admin")
-    clave = st.text_input("Contraseña:", type="password", key="pwd_admin")
+    st.header("👨‍💼 Panel de Administración")
+    clave = st.text_input("Contraseña Maestro:", type="password", key="admin_key")
     
     if clave == "Alameda2026*":
         casas_presentes = sum(servidor["conectados"].values())
@@ -104,21 +95,23 @@ if rol == "Administrador":
                 servidor["asamblea_iniciada"] = True
                 st.rerun()
         else:
-            sel_p = st.selectbox("Pregunta:", range(len(preguntas)), index=servidor['p_idx'], format_func=lambda x: preguntas[x])
-            segundos = st.slider("Tiempo (seg):", 30, 300, 60)
+            sel_p = st.selectbox("Pregunta a gestionar:", range(len(preguntas)), 
+                                 index=servidor['p_idx'], format_func=lambda x: preguntas[x])
+            segundos = st.slider("Tiempo de votación:", 30, 300, 60)
             
             c1, c2 = st.columns(2)
             with c1:
-                if st.button("📢 LANZAR", type="primary", use_container_width=True):
+                if st.button("📢 LANZAR PREGUNTA", type="primary", use_container_width=True):
                     servidor['p_idx'] = sel_p
                     servidor['fase'] = "votacion"
                     servidor['tiempo_cierre'] = datetime.now() + timedelta(seconds=segundos)
                     st.rerun()
             with c2:
-                if st.button("📊 RESULTADOS", use_container_width=True):
+                if st.button("📊 VER RESULTADOS", use_container_width=True):
                     servidor['fase'] = "resultados"
                     st.rerun()
 
+            # MONITOR
             df_v = servidor['votos']
             v_act = df_v[df_v['p_id'] == sel_p]
             if not v_act.empty:
@@ -128,20 +121,19 @@ if rol == "Administrador":
                     r_o = res_sum.reindex(opciones_p9).fillna(0)
                     ax.pie(r_o, labels=opciones_p9, autopct='%1.1f%%', colors=['#2ecc71', '#3498db', '#e74c3c'])
                 else:
-                    r_o = res_sum.sort_index()
-                    l = r_o.index.tolist()
+                    r_o = res_sum.sort_index(); l = r_o.index.tolist()
                     ax.pie(r_o, labels=l, autopct='%1.1f%%', colors=[{'SÍ':'#2ecc71','NO':'#e74c3c'}[i] for i in l])
                 st.pyplot(fig)
             
-            st.download_button("📥 Descargar Reporte", data=df_v.to_csv(index=False).encode('utf-8'), file_name="resultados.csv")
+            st.download_button("📥 Descargar Resultados", data=df_v.to_csv(index=False).encode('utf-8'), file_name="resultados.csv")
 
 # --- VISTA VOTANTE ---
 else:
     if 'mi_casa' not in st.session_state:
-        st.subheader("Ingreso Copropietario")
-        c_in = st.text_input("🏠 Número de Casa:", key="reg_casa").strip()
-        poderes = st.number_input("¿Cuántas casas representa?", 1, 10, 1, key="reg_poder")
-        if st.button("Entrar", type="primary", use_container_width=True):
+        st.subheader("Registro de Ingreso")
+        c_in = st.text_input("🏠 Número de Casa:", key="casa_v").strip()
+        poderes = st.number_input("¿A cuántas casas representa?", 1, 10, 1, key="podes_v")
+        if st.button("Entrar a Votar", type="primary", use_container_width=True):
             if c_in:
                 st.session_state.mi_casa = c_in
                 st.session_state.num_votos = poderes
@@ -149,25 +141,25 @@ else:
                 st.rerun()
     else:
         casa, repre = st.session_state.mi_casa, st.session_state.num_votos
-        st.sidebar.markdown(f"### 📋 Su Planilla\n**Casa:** {casa}\n**Representa:** {repre}")
-        if st.sidebar.button("Cerrar Sesión"):
+        
+        # PLANILLA EN EL LATERAL
+        st.sidebar.markdown(f"### 📋 Su Planilla\n**Casa:** {casa}\n**Representa:** {repre} votos")
+        if st.sidebar.button("Salir"):
             del st.session_state.mi_casa
             st.rerun()
 
         if not servidor["asamblea_iniciada"]:
             st.warning("⏳ Esperando inicio...")
-            time.sleep(3)
-            st.rerun()
+            time.sleep(3); st.rerun()
         
         fase, p_id = servidor['fase'], servidor['p_idx']
         
         if fase == "espera":
-            st.info("⌛ Preparando siguiente votación...")
-            time.sleep(3)
-            st.rerun()
+            st.info("⌛ El administrador está preparando la pregunta...")
+            time.sleep(3); st.rerun()
         else:
-            # --- LA PREGUNTA CON EL NUEVO ESTILO GIGANTE ---
-            st.markdown(f"<div class='pregunta-gigante'>{preguntas[p_id]}</div>", unsafe_allow_html=True)
+            # PREGUNTA GIGANTE
+            st.markdown(f"<div class='titulo-pregunta'>{preguntas[p_id]}</div>", unsafe_allow_html=True)
             
             reloj_area = st.empty()
             df = servidor['votos']
@@ -190,14 +182,14 @@ else:
                 st.button("🔄 Actualizar")
 
             elif ya_voto:
-                st.success(f"✅ Voto registrado.")
+                st.success("✅ Voto registrado. Espere la siguiente instrucción.")
                 time.sleep(5); st.rerun()
 
             elif fase == "votacion" and res > 0:
                 reloj_area.error(f"⏱️ CIERRE EN: {int(res)} segundos")
-                if p_id == 8:
+                if p_id == 8: # Pregunta 9
                     for op in opciones_p9:
-                        if st.button(f"VOTAR POR: {op}", use_container_width=True, key=f"p9_{op}"):
+                        if st.button(f"VOTAR: {op}", use_container_width=True, key=f"p9_{op}"):
                             servidor['votos'] = pd.concat([servidor['votos'], pd.DataFrame([{"casa": casa, "representa": repre, "p_id": p_id, "voto": op}])], ignore_index=True)
                             st.rerun()
                 else: 
@@ -205,7 +197,7 @@ else:
                     with c1:
                         if st.button("✅ SÍ", use_container_width=True, key="btn_si"):
                             servidor['votos'] = pd.concat([servidor['votos'], pd.DataFrame([{"casa": casa, "representa": repre, "p_id": p_id, "voto": "SÍ"}])], ignore_index=True)
-                            st.rerun()
+                            st.balloons(); st.rerun()
                     with c2:
                         if st.button("❌ NO", use_container_width=True, key="btn_no"):
                             servidor['votos'] = pd.concat([servidor['votos'], pd.DataFrame([{"casa": casa, "representa": repre, "p_id": p_id, "voto": "NO"}])], ignore_index=True)
