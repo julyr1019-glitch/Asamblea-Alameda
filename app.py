@@ -5,10 +5,26 @@ import os
 import time
 from datetime import datetime, timedelta
 
-# --- 1. CONFIGURACIÓN ---
-st.set_page_config(page_title="Asamblea Alameda 7 PRO", page_icon="🏢", layout="centered")
+# --- 1. CONFIGURACIÓN DE PÁGINA ---
+st.set_page_config(
+    page_title="Asamblea Alameda 7 PRO", 
+    page_icon="🏢", 
+    layout="centered",
+    initial_sidebar_state="collapsed" # Mantiene el menú lateral cerrado por defecto
+)
 
-# --- 2. MEMORIA GLOBAL ---
+# --- 2. OCULTAR MENÚS DE STREAMLIT (CÓDIGO DE SEGURIDAD) ---
+hide_st_style = """
+            <style>
+            #MainMenu {visibility: hidden;}
+            footer {visibility: hidden;}
+            header {visibility: hidden;}
+            #stDecoration {display:none;}
+            </style>
+            """
+st.markdown(hide_st_style, unsafe_allow_html=True)
+
+# --- 3. MEMORIA GLOBAL ---
 @st.cache_resource
 def iniciar_servidor():
     return {
@@ -23,7 +39,7 @@ def iniciar_servidor():
 servidor = iniciar_servidor()
 TOTAL_CASAS = 184
 
-# --- 3. PREGUNTAS ---
+# --- 4. PREGUNTAS ---
 preguntas = [
     "1. ¿Aprueba la elección del Consejo de Administración por planchas?",
     "2. ¿Aprueba la elección del Comité de Convivencia por planchas?",
@@ -38,9 +54,9 @@ preguntas = [
 ]
 opciones_p9 = ["70.000", "75.000", "85.000"]
 
-# --- 4. LOGO (TAMAÑO DISMINUIDO) ---
+# --- 5. LOGO (TAMAÑO DISMINUIDO) ---
 c_logo1, c_logo2, c_logo3 = st.columns([1, 2, 1])
-with c_logo2: # Centramos el logo pequeño
+with c_logo2:
     if os.path.exists("image_f94506.jpg"):
         st.image("image_f94506.jpg", width=250)
     else:
@@ -48,8 +64,8 @@ with c_logo2: # Centramos el logo pequeño
 
 st.divider()
 
-# --- 5. NAVEGACIÓN ---
-rol = st.sidebar.radio("SISTEMA DE ASAMBLEA", ["Votante", "Administrador"], key="nav_main_pro")
+# --- 6. NAVEGACIÓN ---
+rol = st.sidebar.radio("SISTEMA DE ASAMBLEA", ["Votante", "Administrador"], key="nav_secure")
 
 # --- VISTA ADMINISTRADOR ---
 if rol == "Administrador":
@@ -95,14 +111,11 @@ if rol == "Administrador":
                 else:
                     res_sum_ord = res_sum.sort_index()
                     labels = res_sum_ord.index.tolist()
-                    colors = [{'SÍ': '#2ecc71', 'NO': '#e74c3c'}[l] for l in labels]
+                    color_map = {'SÍ': '#2ecc71', 'NO': '#e74c3c'}
+                    colors = [color_map[l] for l in labels]
                 
                 ax.pie(res_sum_ord, labels=labels, autopct='%1.1f%%', startangle=90, colors=colors)
                 st.pyplot(fig)
-                
-                with st.expander("Ver Matriz de Votos Detallada"):
-                    # Aquí se muestra la planilla con la representación
-                    st.dataframe(df_v)
             
             csv = df_v.to_csv(index=False).encode('utf-8')
             st.download_button("📥 Descargar Reporte", data=csv, file_name="resultados.csv")
@@ -123,12 +136,10 @@ else:
     else:
         casa = st.session_state.mi_casa
         repre = st.session_state.num_votos
-        
-        # PLANILLA EN SIDEBAR
         st.sidebar.markdown(f"### 📋 Su Planilla")
-        st.sidebar.info(f"🏠 **Casa Principal:** {casa}\n\n👥 **Representa a:** {repre} Casa(s)")
+        st.sidebar.info(f"🏠 **Casa:** {casa}\n\n👥 **Representa:** {repre}")
         
-        if st.sidebar.button("Cerrar Sesión"):
+        if st.sidebar.button("Salir / Cambiar"):
             del st.session_state.mi_casa
             st.rerun()
 
@@ -140,11 +151,11 @@ else:
         fase, p_id = servidor['fase'], servidor['p_idx']
         
         if fase == "espera":
-            st.info("⌛ Preparando siguiente votación...")
+            st.info("⌛ El administrador está preparando la votación...")
             time.sleep(3)
             st.rerun()
         else:
-            # PREGUNTA CON LETRA GRANDE Y NEGRITA
+            # PREGUNTA EN NEGRITA Y GRANDE
             st.markdown(f"<h2 style='text-align: center; color: #31333F;'><b>{preguntas[p_id]}</b></h2>", unsafe_allow_html=True)
             
             reloj_area = st.empty()
@@ -170,10 +181,10 @@ else:
                         c = [{'SÍ': '#2ecc71', 'NO': '#e74c3c'}[i] for i in l]
                         ax.pie(res_s, labels=l, autopct='%1.1f%%', colors=c)
                     st.pyplot(fig)
-                st.button("🔄 Actualizar")
+                if st.button("🔄 Actualizar"): st.rerun()
 
             elif ya_voto:
-                st.success(f"✅ Voto de la Casa {casa} (x{repre}) registrado.")
+                st.success(f"✅ Voto registrado (Casa {casa}).")
                 time.sleep(5)
                 st.rerun()
 
@@ -192,17 +203,15 @@ else:
                         if st.button("✅ SÍ", use_container_width=True, key="btn_si_v"):
                             nuevo = pd.DataFrame([{"casa": casa, "representa": repre, "p_id": p_id, "voto": "SÍ"}])
                             servidor['votos'] = pd.concat([servidor['votos'], nuevo], ignore_index=True)
-                            st.balloons()
                             st.rerun()
                     with c2:
                         if st.button("❌ NO", use_container_width=True, key="btn_no_v"):
                             nuevo = pd.DataFrame([{"casa": casa, "representa": repre, "p_id": p_id, "voto": "NO"}])
                             servidor['votos'] = pd.concat([servidor['votos'], nuevo], ignore_index=True)
                             st.rerun()
-                
                 time.sleep(1)
                 st.rerun()
             else:
-                st.warning("⌛ Tiempo de votación terminado.")
+                st.warning("⌛ Tiempo terminado.")
                 time.sleep(3)
                 st.rerun()
