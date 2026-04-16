@@ -18,6 +18,7 @@ st.set_page_config(
 def iniciar_servidor():
     return {
         "asamblea_iniciada": False,
+        "asamblea_cerrada": False, # Nueva variable de control
         "fase": "espera", 
         "p_idx": 0,
         "votos": pd.DataFrame(columns=["casa", "representa", "p_id", "voto"]),
@@ -29,7 +30,7 @@ servidor = iniciar_servidor()
 TOTAL_CASAS = 184
 
 # --- 3. CSS DIFERENCIADO POR ROL ---
-rol = st.sidebar.radio("SISTEMA", ["Votante", "Administrador"], key="nav_final_fixed")
+rol = st.sidebar.radio("SISTEMA", ["Votante", "Administrador"], key="nav_final_cierre")
 
 if rol == "Votante":
     st.markdown("""
@@ -68,7 +69,7 @@ st.divider()
 # --- VISTA ADMINISTRADOR ---
 if rol == "Administrador":
     st.header("👨‍💼 Panel de Control (Admin)")
-    clave = st.text_input("Contraseña Maestro:", type="password", key="pwd_fixed")
+    clave = st.text_input("Contraseña Maestro:", type="password", key="pwd_cierre")
     
     if clave == "Alameda2026*":
         st.sidebar.subheader("🛠️ Herramientas")
@@ -78,7 +79,14 @@ if rol == "Administrador":
             servidor["votos"] = pd.DataFrame(columns=["casa", "representa", "p_id", "voto"])
             servidor["conectados"] = {}
             servidor["asamblea_iniciada"] = False
+            servidor["asamblea_cerrada"] = False
             st.rerun()
+
+        # BOTÓN DE CIERRE DEFINITIVO
+        if servidor["asamblea_iniciada"] and not servidor["asamblea_cerrada"]:
+            if st.sidebar.button("🔴 CERRAR ASAMBLEA", help="Finaliza la asamblea para todos los votantes", use_container_width=True):
+                servidor["asamblea_cerrada"] = True
+                st.rerun()
 
         casas_presentes = sum(servidor["conectados"].values())
         porcentaje_quorum = (casas_presentes / TOTAL_CASAS) * 100
@@ -100,22 +108,28 @@ if rol == "Administrador":
 
         st.divider()
 
-        if not servidor["asamblea_iniciada"]:
+        if servidor["asamblea_cerrada"]:
+            st.error("🚫 LA ASAMBLEA HA SIDO CERRADA DEFINITIVAMENTE")
+        elif not servidor["asamblea_iniciada"]:
             if st.button("🚀 ABRIR PLATAFORMA VOTANTES", type="primary", use_container_width=True):
                 servidor["asamblea_iniciada"] = True
                 st.rerun()
-        else:
-            sel_p = st.selectbox("Pregunta a lanzar:", range(len(preguntas)), index=servidor['p_idx'], format_func=lambda x: preguntas[x])
-            segundos = st.slider("Duración (seg):", 30, 300, 60)
+        
+        # El admin siempre puede ver resultados y descargar aunque esté cerrada
+        if servidor["asamblea_iniciada"] or servidor["asamblea_cerrada"]:
+            st.subheader("📝 Gestión de Preguntas y Resultados")
+            sel_p = st.selectbox("Pregunta:", range(len(preguntas)), index=servidor['p_idx'], format_func=lambda x: preguntas[x])
             
-            cl, cr = st.columns(2)
-            if cl.button("📢 LANZAR PREGUNTA", type="primary", use_container_width=True):
-                servidor['p_idx'], servidor['fase'] = sel_p, "votacion"
-                servidor['tiempo_cierre'] = datetime.now() + timedelta(seconds=segundos)
-                st.rerun()
-            if cr.button("📊 VER RESULTADOS", use_container_width=True):
-                servidor['fase'] = "resultados"
-                st.rerun()
+            if not servidor["asamblea_cerrada"]:
+                segundos = st.slider("Duración (seg):", 30, 300, 60)
+                cl, cr = st.columns(2)
+                if cl.button("📢 LANZAR PREGUNTA", type="primary", use_container_width=True):
+                    servidor['p_idx'], servidor['fase'] = sel_p, "votacion"
+                    servidor['tiempo_cierre'] = datetime.now() + timedelta(seconds=segundos)
+                    st.rerun()
+                if cr.button("📊 VER RESULTADOS", use_container_width=True):
+                    servidor['fase'] = "resultados"
+                    st.rerun()
 
             df_v = servidor['votos']
             v_act = df_v[df_v['p_id'] == sel_p]
@@ -138,8 +152,8 @@ if rol == "Administrador":
                 df_export['Pregunta'] = df_export['p_id'].apply(lambda x: preguntas[x])
                 df_export = df_export[['casa', 'representa', 'Pregunta', 'voto']]
                 csv = df_export.to_csv(index=False).encode('utf-8')
-                st.download_button("📥 Descargar Reporte (Excel)", data=csv, 
-                                   file_name=f"Resultados_Alameda_7.csv",
+                st.download_button("📥 Descargar Reporte Final (Excel)", data=csv, 
+                                   file_name=f"Resultados_Finales_Alameda_7.csv",
                                    use_container_width=True)
 
 # --- VISTA VOTANTE ---
@@ -147,7 +161,6 @@ else:
     if 'mi_casa' not in st.session_state:
         st.subheader("Ingreso de Votante")
         c_in = st.text_input("🏠 Número de Casa:").strip()
-        # LA LÍNEA QUE TENÍA EL ERROR CORREGIDA ABAJO:
         podes = st.number_input("Total de casas que representa:", min_value=1, max_value=10, value=1)
         if st.button("Ingresar", type="primary"):
             if c_in:
@@ -155,6 +168,14 @@ else:
                 servidor['conectados'][c_in] = podes
                 st.rerun()
     else:
+        # VALIDACIÓN DE CIERRE PARA EL VOTANTE
+        if servidor["asamblea_cerrada"]:
+            st.markdown("<br><br>", unsafe_allow_html=True)
+            st.success("🏁 LA ASAMBLEA HA FINALIZADO")
+            st.markdown("<div class='titulo-v'>¡Muchas gracias por su participación!</div>", unsafe_allow_html=True)
+            st.info("Ya puede cerrar esta ventana de su navegador.")
+            st.stop()
+
         casa, repre = st.session_state.mi_casa, st.session_state.num_votos
         st.sidebar.info(f"📍 Casa: {casa}\n\n🗳️ Representa: {repre} votos")
         if st.sidebar.button("Cerrar Sesión"):
@@ -188,10 +209,10 @@ else:
                 if res_t > 0:
                     st.error(f"⏱️ TIEMPO: {int(res_t)} seg")
                     c1, c2 = st.columns(2)
-                    if c1.button("✅ SÍ", use_container_width=True, key="si_fixed"):
+                    if c1.button("✅ SÍ", use_container_width=True, key="si_final"):
                         servidor['votos'] = pd.concat([servidor['votos'], pd.DataFrame([{"casa": casa, "representa": repre, "p_id": p_id, "voto": "SÍ"}])], ignore_index=True)
                         st.rerun()
-                    if c2.button("❌ NO", use_container_width=True, key="no_fixed"):
+                    if c2.button("❌ NO", use_container_width=True, key="no_final"):
                         servidor['votos'] = pd.concat([servidor['votos'], pd.DataFrame([{"casa": casa, "representa": repre, "p_id": p_id, "voto": "NO"}])], ignore_index=True)
                         st.rerun()
                     time.sleep(1); st.rerun()
