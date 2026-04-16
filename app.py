@@ -29,7 +29,7 @@ servidor = iniciar_servidor()
 TOTAL_CASAS = 184
 
 # --- 3. CSS DIFERENCIADO POR ROL ---
-rol = st.sidebar.radio("SISTEMA", ["Votante", "Administrador"], key="nav_final_v3")
+rol = st.sidebar.radio("SISTEMA", ["Votante", "Administrador"], key="nav_final_fixed")
 
 if rol == "Votante":
     st.markdown("""
@@ -68,10 +68,9 @@ st.divider()
 # --- VISTA ADMINISTRADOR ---
 if rol == "Administrador":
     st.header("👨‍💼 Panel de Control (Admin)")
-    clave = st.text_input("Contraseña Maestro:", type="password", key="pwd_v3")
+    clave = st.text_input("Contraseña Maestro:", type="password", key="pwd_fixed")
     
     if clave == "Alameda2026*":
-        # HERRAMIENTAS LATERALES
         st.sidebar.subheader("🛠️ Herramientas")
         if st.sidebar.button("🔄 ACTUALIZAR (RERUN)", use_container_width=True):
             st.rerun()
@@ -81,7 +80,6 @@ if rol == "Administrador":
             servidor["asamblea_iniciada"] = False
             st.rerun()
 
-        # QUÓRUM
         casas_presentes = sum(servidor["conectados"].values())
         porcentaje_quorum = (casas_presentes / TOTAL_CASAS) * 100
         
@@ -91,14 +89,11 @@ if rol == "Administrador":
         cm2.metric("Casas Registradas", f"{len(servidor['conectados'])}")
         st.progress(min(porcentaje_quorum / 100, 1.0))
 
-        # --- LISTADO DE CASAS (CON EL NOMBRE DE COLUMNA CORREGIDO) ---
         with st.expander("🏠 VER LISTADO DE ASISTENCIA DETALLADO"):
             if servidor["conectados"]:
-                # Generamos la tabla con el nombre que pediste
                 df_asistencia = pd.DataFrame([
                     {"Casa": k, "No. Casas Representadas": v} for k, v in servidor["conectados"].items()
                 ]).sort_values(by="Casa")
-                
                 st.table(df_asistencia)
             else:
                 st.info("No hay casas conectadas aún.")
@@ -122,34 +117,28 @@ if rol == "Administrador":
                 servidor['fase'] = "resultados"
                 st.rerun()
 
-            # --- RESULTADOS PARA CAPTURA ---
             df_v = servidor['votos']
             v_act = df_v[df_v['p_id'] == sel_p]
             
             if not v_act.empty:
                 st.markdown("### 📈 Gráfica de Resultados")
                 res = v_act.groupby('voto')['representa'].sum()
-                
-                # Gráfica pequeña para capturas
                 fig, ax = plt.subplots(figsize=(4, 2.2)) 
                 ax.pie(res, labels=res.index, autopct='%1.1f%%', startangle=90, 
                        colors=[('#2ecc71' if i=='SÍ' else '#e74c3c') for i in res.index],
                        textprops={'fontsize': 8})
                 st.pyplot(fig)
 
-                # Detalle de votantes
                 st.markdown("### 📋 Detalle de Votación")
                 st.dataframe(v_act[['casa', 'representa', 'voto']].sort_values(by='casa'), 
                              use_container_width=True, hide_index=True)
             
-            # --- DESCARGA EXCEL ---
             if not df_v.empty:
                 df_export = df_v.copy()
                 df_export['Pregunta'] = df_export['p_id'].apply(lambda x: preguntas[x])
                 df_export = df_export[['casa', 'representa', 'Pregunta', 'voto']]
-                
                 csv = df_export.to_csv(index=False).encode('utf-8')
-                st.download_button("📥 Descargar Reporte Completo (Excel)", data=csv, 
+                st.download_button("📥 Descargar Reporte (Excel)", data=csv, 
                                    file_name=f"Resultados_Alameda_7.csv",
                                    use_container_width=True)
 
@@ -158,4 +147,53 @@ else:
     if 'mi_casa' not in st.session_state:
         st.subheader("Ingreso de Votante")
         c_in = st.text_input("🏠 Número de Casa:").strip()
-        podes = st.number_
+        # LA LÍNEA QUE TENÍA EL ERROR CORREGIDA ABAJO:
+        podes = st.number_input("Total de casas que representa:", min_value=1, max_value=10, value=1)
+        if st.button("Ingresar", type="primary"):
+            if c_in:
+                st.session_state.mi_casa, st.session_state.num_votos = c_in, podes
+                servidor['conectados'][c_in] = podes
+                st.rerun()
+    else:
+        casa, repre = st.session_state.mi_casa, st.session_state.num_votos
+        st.sidebar.info(f"📍 Casa: {casa}\n\n🗳️ Representa: {repre} votos")
+        if st.sidebar.button("Cerrar Sesión"):
+            del st.session_state.mi_casa
+            st.rerun()
+
+        if not servidor["asamblea_iniciada"]:
+            st.warning("⏳ Esperando apertura del sistema..."); time.sleep(3); st.rerun()
+        
+        fase, p_id = servidor['fase'], servidor['p_idx']
+        
+        if fase == "espera":
+            st.info("⌛ Preparando siguiente pregunta..."); time.sleep(3); st.rerun()
+        else:
+            st.markdown(f"<div class='titulo-v'>{preguntas[p_id]}</div>", unsafe_allow_html=True)
+            df = servidor['votos']
+            ya_voto = not df[(df['casa'] == casa) & (df['p_id'] == p_id)].empty
+            
+            if fase == "resultados":
+                v_p = df[df['p_id'] == p_id]
+                if not v_p.empty:
+                    res_s = v_p.groupby('voto')['representa'].sum()
+                    fig, ax = plt.subplots(figsize=(4,3))
+                    ax.pie(res_s, labels=res_s.index, autopct='%1.1f%%', colors=[('#2ecc71' if i=='SÍ' else '#e74c3c') for i in res_s.index])
+                    st.pyplot(fig)
+                st.button("🔄 Actualizar")
+            elif ya_voto:
+                st.success("✅ Voto registrado."); time.sleep(5); st.rerun()
+            elif fase == "votacion":
+                res_t = (servidor['tiempo_cierre'] - datetime.now()).total_seconds()
+                if res_t > 0:
+                    st.error(f"⏱️ TIEMPO: {int(res_t)} seg")
+                    c1, c2 = st.columns(2)
+                    if c1.button("✅ SÍ", use_container_width=True, key="si_fixed"):
+                        servidor['votos'] = pd.concat([servidor['votos'], pd.DataFrame([{"casa": casa, "representa": repre, "p_id": p_id, "voto": "SÍ"}])], ignore_index=True)
+                        st.rerun()
+                    if c2.button("❌ NO", use_container_width=True, key="no_fixed"):
+                        servidor['votos'] = pd.concat([servidor['votos'], pd.DataFrame([{"casa": casa, "representa": repre, "p_id": p_id, "voto": "NO"}])], ignore_index=True)
+                        st.rerun()
+                    time.sleep(1); st.rerun()
+                else:
+                    st.warning("⌛ El tiempo terminó."); time.sleep(3); st.rerun()
