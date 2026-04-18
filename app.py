@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import os
 import time
 from datetime import datetime, timedelta
-from fpdf import FPDF # Necesario para el reporte PDF
+from fpdf import FPDF
 
 # --- 1. CONFIGURACION ---
 st.set_page_config(
@@ -30,31 +30,24 @@ def iniciar_servidor():
 servidor = iniciar_servidor()
 TOTAL_CASAS = 184
 
-# --- 3. FUNCION PARA GENERAR PDF DE QUORUM ---
+# --- 3. FUNCION PDF ---
 def generar_pdf_quorum(datos_conectados):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", 'B', 16)
     pdf.cell(190, 10, "REPORTE DE QUORUM - ALAMEDA 7", ln=True, align='C')
-    pdf.set_font("Arial", size=10)
-    pdf.cell(190, 10, f"Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=True, align='C')
     pdf.ln(10)
-    
-    # Encabezados
     pdf.set_font("Arial", 'B', 12)
     pdf.cell(40, 10, "Casa Lider", 1)
     pdf.cell(30, 10, "No. Votos", 1)
     pdf.cell(120, 10, "Detalle de Casas", 1)
     pdf.ln()
-    
-    # Datos
     pdf.set_font("Arial", size=10)
     for k, v in sorted(datos_conectados.items(), key=lambda x: int(x[0])):
         pdf.cell(40, 10, str(k), 1)
         pdf.cell(30, 10, str(v[0]), 1)
         pdf.cell(120, 10, str(v[1]), 1)
         pdf.ln()
-    
     return pdf.output(dest='S').encode('latin-1', 'ignore')
 
 # --- 4. CSS ---
@@ -91,12 +84,13 @@ if 'mi_casa' not in st.session_state and 'admin_logueado' not in st.session_stat
             
             if st.form_submit_button("INGRESAR", use_container_width=True):
                 casa_lider = str(int(casa_lider_n))
+                # Censo Global para validación
                 casas_ocupadas = set()
                 for lider, data in servidor['conectados'].items():
                     for p in [x.strip() for x in data[1].split(',') if x.strip()]: casas_ocupadas.add(p)
 
                 if casa_lider in casas_ocupadas:
-                    st.error(f"La casa {casa_lider} ya esta registrada.")
+                    st.error(f"La casa {casa_lider} ya esta registrada. Si se le cerro la sesion, pida al administrador que libere su casa.")
                 else:
                     raw_others = [x.strip() for x in detalle_c.replace('.',',').split(',') if x.strip()]
                     unique_others, errores = [], []
@@ -128,37 +122,35 @@ if 'mi_casa' not in st.session_state and 'admin_logueado' not in st.session_stat
 if 'admin_logueado' in st.session_state:
     st.subheader("Panel Administrativo")
     
-    # --- FILA DE HERRAMIENTAS SUPERIOR (BOTON CERRAR MOVIDO) ---
-    c_t = st.columns([1, 1, 1, 1.5]) # Mas ancho para el boton de cerrar
+    c_t = st.columns([1, 1, 1, 1.5])
     if c_t[0].button("Actualizar"): st.rerun()
     if c_t[1].button("Reset"): 
         servidor.update({"votos": pd.DataFrame(columns=["casa", "representa", "casas_detalle", "p_id", "voto"]), "conectados": {}, "asamblea_iniciada": False, "asamblea_cerrada": False, "fase": "espera"})
         st.rerun()
     if c_t[2].button("Salir"): del st.session_state.admin_logueado; st.rerun()
-    
-    # Boton de Cierre con proteccion visual
-    if not servidor["asamblea_cerrada"]:
-        if c_t[3].button("CERRAR ASAMBLEA", type="secondary"):
-            servidor["asamblea_cerrada"] = True; st.rerun()
+    if not servidor["asamblea_cerrada"] and c_t[3].button("CERRAR ASAMBLEA"):
+        servidor["asamblea_cerrada"] = True; st.rerun()
 
     votos_totales = sum(v[0] for v in servidor["conectados"].values())
     st.metric("Quorum", f"{(votos_totales/TOTAL_CASAS)*100:.1f}%", f"{votos_totales} de {TOTAL_CASAS} votos")
     
-    # --- SECCION DE QUORUM Y EXPORTACION PDF ---
-    with st.expander("Ver Listado de Asistencia (Quorum)"):
+    # --- HERRAMIENTA LIBERAR CASA ---
+    with st.expander("🏠 Gestion de Asistencia y Quorum"):
         if servidor["conectados"]:
+            # LISTA PARA BORRAR
+            st.markdown("### Liberar Casa Bloqueada")
+            casa_a_liberar = st.selectbox("Seleccione casa para permitir re-ingreso:", [""] + list(servidor['conectados'].keys()))
+            if st.button("🔓 LIBERAR CASA SELECCIONADA") and casa_a_liberar != "":
+                del servidor['conectados'][casa_a_liberar]
+                st.success(f"Casa {casa_a_liberar} liberada. El vecino ya puede volver a entrar.")
+                st.rerun()
+            
+            st.divider()
             df_asist = pd.DataFrame([{"Casa Lider": k, "No. Votos": v[0], "Casas Detalle": v[1]} for k, v in servidor["conectados"].items()]).sort_values("Casa Lider", key=lambda x: x.astype(int))
             st.table(df_asist)
             
-            # Boton de Exportar PDF
             pdf_bytes = generar_pdf_quorum(servidor["conectados"])
-            st.download_button(
-                label="📥 EXPORTAR QUORUM A PDF",
-                data=pdf_bytes,
-                file_name=f"Quorum_Alameda7_{datetime.now().strftime('%H_%M')}.pdf",
-                mime="application/pdf",
-                use_container_width=True
-            )
+            st.download_button(label="📥 EXPORTAR QUORUM A PDF", data=pdf_bytes, file_name=f"Quorum_Alameda7.pdf", mime="application/pdf", use_container_width=True)
 
     if servidor["asamblea_cerrada"]: st.error("ASAMBLEA CERRADA DEFINITIVAMENTE")
     elif not servidor["asamblea_iniciada"]:
@@ -166,28 +158,19 @@ if 'admin_logueado' in st.session_state:
             servidor["asamblea_iniciada"] = True; st.rerun()
     
     if servidor["asamblea_iniciada"] or servidor["asamblea_cerrada"]:
-        preguntas = [
-            "Logro revisar el contenido de la cartilla para la Asamblea del 19 de Abril de 2026?",
-            "Delegara poder a un tercero que asista a la Asamblea General?",
-            "Cuenta con dispositivo movil para asistir a la asamblea General?",
-            "Cuenta ud con datos moviles para la participacion en la Asamblea General?",
-            "Tiene dudas acerca de la votacion electronica?",
-            "Desea que la administracion se contacte con ud para resolver sus inquietudes?"
-        ]
+        preguntas = ["Logro revisar el contenido de la cartilla...?", "Delegara poder a un tercero...?", "Cuenta con dispositivo movil...?", "Cuenta ud con datos moviles...?", "Tiene dudas acerca de la votacion...?", "Desea que la administracion se contacte...?"]
         sel_p = st.selectbox("Pregunta:", range(len(preguntas)), index=servidor['p_idx'], format_func=lambda x: preguntas[x])
         
         if not servidor["asamblea_cerrada"]:
             seg = st.slider("Segundos:", 30, 300, 60)
             cl, cr = st.columns(2)
             if cl.button("LANZAR", type="primary", use_container_width=True):
-                servidor.update({'p_idx': sel_p, 'fase': "votacion", 'tiempo_cierre': datetime.now() + timedelta(seconds=seg)})
-                st.rerun()
+                servidor.update({'p_idx': sel_p, 'fase': "votacion", 'tiempo_cierre': datetime.now() + timedelta(seconds=seg)}); st.rerun()
             if cr.button("RESULTADOS", use_container_width=True):
                 servidor['fase'] = "resultados"; st.rerun()
 
         v_p = servidor['votos'][servidor['votos']['p_id'] == sel_p]
         if not v_p.empty:
-            st.markdown("### Grafica de Resultados")
             res = v_p.groupby('voto')['representa'].sum()
             fig, ax = plt.subplots(figsize=(4, 2))
             ax.pie(res, labels=res.index, autopct='%1.1f%%', startangle=90, colors=[('#2ecc71' if i=='SI' else '#e74c3c') for i in res.index])
@@ -198,8 +181,10 @@ if 'admin_logueado' in st.session_state:
 # --- 8. VISTA VOTANTE ---
 else:
     if servidor["asamblea_cerrada"]:
-        st.success("ASAMBLEA FINALIZADA"); st.markdown("<div class='titulo-v'>¡Gracias por su participacion!</div>", unsafe_allow_html=True)
-        if st.button("Cerrar Sesion"): del st.session_state.mi_casa; st.rerun()
+        st.success("ASAMBLEA FINALIZADA")
+        if st.button("Cerrar Sesion"):
+            if st.session_state.mi_casa in servidor['conectados']: del servidor['conectados'][st.session_state.mi_casa]
+            del st.session_state.mi_casa; st.rerun()
         st.stop()
 
     st.info(f"Casa: {st.session_state.mi_casa} | Votos: {st.session_state.num_votos}")
@@ -208,14 +193,7 @@ else:
         st.warning("Esperando apertura..."); time.sleep(2); st.rerun()
     
     fase, p_id = servidor['fase'], servidor['p_idx']
-    preguntas = [
-        "Logro revisar el contenido de la cartilla para la Asamblea del 19 de Abril de 2026?",
-        "Delegara poder a un tercero que asista a la Asamblea General?",
-        "Cuenta con dispositivo movil para asistir a la asamblea General?",
-        "Cuenta ud con datos moviles para la participacion en la Asamblea General?",
-        "Tiene dudas acerca de la votacion electronica?",
-        "Desea que la administracion se contacte con ud para resolver sus inquietudes?"
-    ]
+    preguntas = ["Logro revisar el contenido de la cartilla...?", "Delegara poder a un tercero...?", "Cuenta con dispositivo movil...?", "Cuenta ud con datos moviles...?", "Tiene dudas acerca de la votacion...?", "Desea que la administracion se contacte...?"]
     
     if fase == "espera": st.info("Preparando pregunta..."); time.sleep(2); st.rerun()
     else:
@@ -245,4 +223,7 @@ else:
                 time.sleep(1); st.rerun()
             else: st.warning("Tiempo terminado."); time.sleep(2); st.rerun()
 
-    if st.button("Cerrar Sesion"): del st.session_state.mi_casa; st.rerun()
+    if st.button("Cerrar Sesion"):
+        if st.session_state.mi_casa in servidor['conectados']: del servidor['conectados'][st.session_state.mi_casa]
+        del st.session_state.mi_casa
+        st.rerun()
