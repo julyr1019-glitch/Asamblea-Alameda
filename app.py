@@ -43,7 +43,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 4. PREGUNTAS (SIN TILDES) ---
+# --- 4. PREGUNTAS ---
 preguntas = [
     "Logro revisar el contenido de la cartilla para la Asamblea del 19 de Abril de 2026?",
     "Delegara poder a un tercero que asista a la Asamblea General?",
@@ -64,52 +64,60 @@ st.divider()
 # --- 6. IDENTIFICACION ---
 if 'mi_casa' not in st.session_state and 'admin_logueado' not in st.session_state:
     st.markdown("<h2 style='text-align: center;'>Bienvenido</h2>", unsafe_allow_html=True)
-    rol = st.radio("Identifíquese:", ["Votante", "Administrador"], horizontal=True, label_visibility="collapsed")
+    rol = st.radio("Identificarse:", ["Votante", "Administrador"], horizontal=True, label_visibility="collapsed")
     
     if rol == "Votante":
         with st.form("login_v"):
-            casa_lider = st.text_input("Casa Principal (Ej: 101):").strip()
-            detalle_c = st.text_input("Otras casas que representa (Separadas por coma):", placeholder="Ej: 202, 305")
+            # RESTRICCION 1: Solo numeros del 1 al 184
+            casa_lider_n = st.number_input("Su Casa Principal (1-184):", min_value=1, max_value=TOTAL_CASAS, step=1)
+            detalle_c = st.text_input("Otras casas que representa (Solo numeros separados por coma):", placeholder="Ej: 20, 45, 102")
             
             if st.form_submit_button("INGRESAR A LA ASAMBLEA", use_container_width=True):
-                if casa_lider:
-                    # --- ESCUDO DE SEGURIDAD GLOBAL ---
-                    # 1. Obtener todas las casas ya registradas en el sistema (CENSO GLOBAL)
-                    casas_ocupadas = set()
-                    for lider, data in servidor['conectados'].items():
-                        # data[1] contiene el texto "101, 102, 103"
-                        partes = [p.strip() for p in data[1].split(',') if p.strip()]
-                        for p in partes: casas_ocupadas.add(p)
+                casa_lider = str(int(casa_lider_n))
+                
+                # --- ESCUDO DE INTEGRIDAD NUMERICA ---
+                # 1. Obtener censo global para evitar duplicados
+                casas_ocupadas = set()
+                for lider, data in servidor['conectados'].items():
+                    partes = [p.strip() for p in data[1].split(',') if p.strip()]
+                    for p in partes: casas_ocupadas.add(p)
 
-                    # 2. Validar si la Casa Lider ya existe
-                    if casa_lider in casas_ocupadas:
-                        st.error(f"Error: La casa {casa_lider} ya se encuentra registrada por otro asistente.")
+                if casa_lider in casas_ocupadas:
+                    st.error(f"La casa {casa_lider} ya esta registrada.")
+                else:
+                    # 2. Validar que la lista de representadas sea solo numerica y este en rango
+                    raw_others = [x.strip() for x in detalle_c.replace('.',',').split(',') if x.strip()]
+                    unique_others = []
+                    errores = []
+                    
+                    for c in raw_others:
+                        if not c.isdigit():
+                            errores.append(f"'{c}' no es un numero")
+                            continue
+                        num = int(c)
+                        if num < 1 or num > TOTAL_CASAS:
+                            errores.append(f"Casa {num} fuera de rango (1-184)")
+                            continue
+                        c_str = str(num)
+                        if c_str == casa_lider: continue
+                        if c_str in casas_ocupadas:
+                            st.warning(f"La casa {c_str} ya fue tomada por otro asistente.")
+                            continue
+                        unique_others.append(c_str)
+                    
+                    if errores:
+                        st.error(f"Corrija los siguientes errores: {', '.join(errores)}")
                     else:
-                        # 3. Procesar las casas representadas
-                        raw_others = [x.strip() for x in detalle_c.split(',') if x.strip()]
-                        unique_others = sorted(list(set(raw_others))) # Quitar duplicados internos
-                        
-                        libres = []
-                        ocupadas = []
-                        
-                        for c in unique_others:
-                            if c == casa_lider: continue # No se cuenta a si mismo
-                            if c in casas_ocupadas: ocupadas.append(c)
-                            else: libres.append(c)
-                        
-                        if ocupadas:
-                            st.warning(f"Nota: Las casas {', '.join(ocupadas)} no se agregaron porque ya fueron registradas previamente.")
-                        
-                        # 4. Calculo Final
-                        podes_calc = 1 + len(libres)
-                        texto_final = casa_lider + (f", {', '.join(libres)}" if libres else "")
+                        # 3. Finalizar registro
+                        unique_others = sorted(list(set(unique_others)))
+                        podes_calc = 1 + len(unique_others)
+                        texto_final = casa_lider + (f", {', '.join(unique_others)}" if unique_others else "")
                         
                         st.session_state.mi_casa = casa_lider
                         st.session_state.num_votos = podes_calc
                         st.session_state.detalle_votos = texto_final
                         servidor['conectados'][casa_lider] = [podes_calc, texto_final]
                         st.rerun()
-                else: st.error("Debe ingresar su Casa Principal.")
     else:
         with st.form("login_a"):
             clave = st.text_input("Clave Admin:", type="password")
@@ -134,7 +142,7 @@ if 'admin_logueado' in st.session_state:
     
     with st.expander("Ver Asistencia (Quorum)"):
         if servidor["conectados"]:
-            st.table(pd.DataFrame([{"Casa Lider": k, "No. Votos": v[0], "Detalle": v[1]} for k, v in servidor["conectados"].items()]).sort_values("Casa Lider"))
+            st.table(pd.DataFrame([{"Casa Lider": k, "No. Votos": v[0], "Detalle": v[1]} for k, v in servidor["conectados"].items()]).sort_values("Casa Lider", key=lambda x: x.astype(int)))
 
     if servidor["asamblea_cerrada"]: st.error("ASAMBLEA CERRADA DEFINITIVAMENTE")
     elif not servidor["asamblea_iniciada"]:
@@ -156,12 +164,11 @@ if 'admin_logueado' in st.session_state:
 
         v_p = servidor['votos'][servidor['votos']['p_id'] == sel_p]
         if not v_p.empty:
-            st.markdown("### Grafica de Resultados")
             res = v_p.groupby('voto')['representa'].sum()
             fig, ax = plt.subplots(figsize=(4, 2))
             ax.pie(res, labels=res.index, autopct='%1.1f%%', startangle=90, colors=[('#2ecc71' if i=='SI' else '#e74c3c') for i in res.index])
             st.pyplot(fig)
-            st.dataframe(v_p[['casa', 'representa', 'casas_detalle', 'voto']].sort_values(by="casa"), use_container_width=True, hide_index=True)
+            st.dataframe(v_p[['casa', 'representa', 'casas_detalle', 'voto']].sort_values(by="casa", key=lambda x: x.astype(int)), use_container_width=True, hide_index=True)
             st.download_button("Descargar Reporte", data=servidor['votos'].to_csv(index=False).encode('utf-8'), file_name="Reporte_Asamblea.csv", use_container_width=True)
 
 # --- 8. VISTA VOTANTE ---
